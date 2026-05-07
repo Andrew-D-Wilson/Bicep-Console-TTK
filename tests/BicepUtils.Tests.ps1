@@ -4,6 +4,13 @@ Describe "Invoke-BicepExpression" {
         Import-Module "$PSScriptRoot/../src/BicepUtils/BicepUtils.psm1" -Force
     }
 
+    It "Invoke-BicepExpression should evaluate a standalone expression without any imports" {
+
+        $result = Invoke-BicepExpression -Expression "concat('hello', '-', 'world')"
+
+        $result | Should -Be "'hello-world'"
+    }
+
     It "Invoke-BicepExpression should evaluate a user-defined function imported from a single Bicep file" {
 
         $bicepCode = Import-Bicep "import {coreParams, newCoreParams} from '$PSScriptRoot/../examples/Types.bicep'"

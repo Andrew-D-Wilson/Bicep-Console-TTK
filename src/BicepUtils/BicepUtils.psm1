@@ -121,8 +121,8 @@ function Import-Bicep {
 function Invoke-BicepExpression {
     [CmdletBinding()]
     param (
-        [Parameter(Mandatory = $true)]
-        [string]$BicepCode,
+        [Parameter(Mandatory = $false)]
+        [string]$BicepCode = '',
         [Parameter(Mandatory = $true)]
         [string]$Expression,
         [Parameter(Mandatory = $false)]
@@ -163,8 +163,16 @@ function Invoke-BicepExpression {
 
         $process.WaitForExit()
 
-        if ($output -match 'Error|error') {
-            throw "Bicep console error: $output"
+        # Bicep console writes errors to stdout in the form:
+        #   <expression echoed>
+        #   ~~~~~ <error message>
+        # Detect this by looking for a line of tildes/carets followed by an error message.
+        $outputLines = $output -split '\r?\n'
+        $errorLineIndex = ($outputLines | Select-String -Pattern '^\s*[~\^]+\s+\S').LineNumber | Select-Object -First 1
+        if ($errorLineIndex) {
+            # Grab the echoed expression and the error message for a clear failure
+            $errorMessage = ($outputLines[$errorLineIndex - 1]).Trim()
+            throw "Bicep console error: $errorMessage"
         }
 
         # Return the full trimmed output (bicep console outputs the result directly to stdout)
