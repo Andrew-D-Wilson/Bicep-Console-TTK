@@ -123,20 +123,20 @@ function Invoke-BicepExpression {
     param (
         [Parameter(Mandatory = $false)]
         [Alias('b')]
-        [string]$BicepCode = '',
+        [string]$BicepImports = '',
         [Parameter(Mandatory = $true)]
         [Alias('e')]
         [string]$Expression,
         [Parameter(Mandatory = $false)]
         [Alias('s')]
-        [string[]]$SetupExpressions = @()
+        [string[]]$SetupDeclarations = @()
     )
 
     process {
         # Strip all decorators - they are not valid in bicep console interactive mode
-        $fullBicepCode = ($BicepCode -split '\r?\n' | Where-Object { $_ -notmatch '^\s*@' }) -join "`n"
+        $fullBicepImports = ($BicepImports -split '\r?\n' | Where-Object { $_ -notmatch '^\s*@' }) -join "`n"
 
-        # Start the Bicep console and pass the code to it
+        # Start the Bicep console and pass the imports, declarations, and expression to it
         $bicepPath = (Get-Command bicep).Source
         $processInfo = New-Object System.Diagnostics.ProcessStartInfo
         $processInfo.FileName = $bicepPath
@@ -153,9 +153,9 @@ function Invoke-BicepExpression {
 
         $inputStream = $process.StandardInput
         
-        # Write the imported declarations, any setup expressions, then the main expression
-        $inputStream.WriteLine($fullBicepCode)
-        foreach ($setup in $SetupExpressions) {
+        # Write the imported declarations, any setup declarations, then the main expression
+        $inputStream.WriteLine($fullBicepImports)
+        foreach ($setup in $SetupDeclarations) {
             $inputStream.WriteLine($setup)
         }
         $inputStream.WriteLine($Expression)
