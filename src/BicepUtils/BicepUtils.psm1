@@ -122,10 +122,13 @@ function Invoke-BicepExpression {
     [CmdletBinding()]
     param (
         [Parameter(Mandatory = $false)]
+        [Alias('b')]
         [string]$BicepCode = '',
         [Parameter(Mandatory = $true)]
+        [Alias('e')]
         [string]$Expression,
         [Parameter(Mandatory = $false)]
+        [Alias('s')]
         [string[]]$SetupExpressions = @()
     )
 

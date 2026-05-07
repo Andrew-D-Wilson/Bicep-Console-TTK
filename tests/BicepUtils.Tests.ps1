@@ -48,7 +48,7 @@ Describe "Invoke-BicepExpression" {
             "var coreParameters coreParams = newCoreParams('ukwest', 'ukw', 'dev', projectNameComplete)"
         )
         $expression = "basicResource('aks', coreParameters)"
-        $result = Invoke-BicepExpression -BicepCode $bicepCode -SetupExpressions $setupExpressions -Expression $expression
+        $result = Invoke-BicepExpression -b $bicepCode -s $setupExpressions -e $expression
 
         $expected = "'aks-helloworldbicep-dev-ukwest'"
         $result | Should -Be $expected
