@@ -19,13 +19,31 @@ Describe "Invoke-BicepExpression" {
 
         $bicepCode = Import-Bicep @(
             "import {coreParams, newCoreParams} from '$PSScriptRoot/../examples/Types.bicep'",
-            "import {basicResource} from '$PSScriptRoot/../examples/Functions.bicep'"
+            "import {basicResource} from '$PSScriptRoot/../examples/NamingFunctions.bicep'"
         )
 
         $expression = "basicResource('aks', newCoreParams('ukwest', 'ukw', 'dev', 'myproject'))"
         $result = Invoke-BicepExpression -BicepCode $bicepCode -Expression $expression
 
         $expected = "'aks-myproject-dev-ukwest'"
+        $result | Should -Be $expected
+    }
+    It "Invoke-BicepExpression should support setup expressions to pre-declare variables before the main expression" {
+
+        $bicepCode = Import-Bicep @(
+            "Import {coreParams, newCoreParams} from '$PSScriptRoot/../examples/Types.bicep'",
+            "Import {basicResource} from '$PSScriptRoot/../examples/NamingFunctions.bicep'"
+        )
+
+        $setupExpressions = @(
+			"var projectNameStart = 'helloworld'",
+			"var projectNameComplete = '`${projectNameStart}bicep'", # This needs to be noted in documentation that $ needs to be escaped else it will be evaluated by PowerShell instead of passed to Bicep
+            "var coreParameters coreParams = newCoreParams('ukwest', 'ukw', 'dev', projectNameComplete)"
+        )
+        $expression = "basicResource('aks', coreParameters)"
+        $result = Invoke-BicepExpression -BicepCode $bicepCode -SetupExpressions $setupExpressions -Expression $expression
+
+        $expected = "'aks-helloworldbicep-dev-ukwest'"
         $result | Should -Be $expected
     }
 }

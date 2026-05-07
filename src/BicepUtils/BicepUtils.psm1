@@ -124,7 +124,9 @@ function Invoke-BicepExpression {
         [Parameter(Mandatory = $true)]
         [string]$BicepCode,
         [Parameter(Mandatory = $true)]
-        [string]$Expression
+        [string]$Expression,
+        [Parameter(Mandatory = $false)]
+        [string[]]$SetupExpressions = @()
     )
 
     process {
@@ -148,8 +150,11 @@ function Invoke-BicepExpression {
 
         $inputStream = $process.StandardInput
         
-        # Write the imported code and the expression
+        # Write the imported declarations, any setup expressions, then the main expression
         $inputStream.WriteLine($fullBicepCode)
+        foreach ($setup in $SetupExpressions) {
+            $inputStream.WriteLine($setup)
+        }
         $inputStream.WriteLine($Expression)
         $inputStream.Close()
 
