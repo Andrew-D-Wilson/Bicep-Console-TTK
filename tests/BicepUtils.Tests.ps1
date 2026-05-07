@@ -138,5 +138,40 @@ Describe "Invoke-BicepExpression" {
 
             { Invoke-BicepExpression -Expression "undeclaredFunction()" } | Should -Throw "*Bicep console error*"
         }
+
+        It "should include the offending expression in the error message without raw tilde characters" {
+
+            $err = { Invoke-BicepExpression -Expression "undeclaredFunction()" } | Should -Throw -PassThru
+            $err.Exception.Message | Should -BeLike "*undeclaredFunction*"
+            $err.Exception.Message | Should -Not -BeLike "*~~~~*"
+        }
+    }
+
+    Context "Import-Bicep validation" {
+
+        It "should throw when the referenced file does not exist" {
+
+            { Import-Bicep "import {foo} from 'nonexistent.bicep'" } | Should -Throw "*File not found*"
+        }
+
+        It "should warn when a named member is not found in the file" {
+
+            Import-Bicep "import {nonExistentMember} from '$PSScriptRoot/../examples/Types.bicep'" -WarningVariable importWarnings | Out-Null
+            $importWarnings | Should -Not -BeNullOrEmpty
+            "$importWarnings" | Should -BeLike "*nonExistentMember*"
+        }
+
+        It "should not emit duplicate declarations when the same member is imported more than once" {
+
+            $bicepImports = Import-Bicep @(
+                "import * from '$PSScriptRoot/../examples/Types.bicep'",
+                "import {coreParams} from '$PSScriptRoot/../examples/Types.bicep'"
+            )
+            # A duplicate would cause bicep console to error with 'already declared'
+            $expression = "newCoreParams('ukwest', 'ukw', 'dev', 'myproject')"
+            $result = Invoke-BicepExpression -BicepImports $bicepImports -Expression $expression
+            $expected = "{`n  location: 'ukwest'`n  locationShortName: 'ukw'`n  environment: 'dev'`n  projectPrefix: 'myproject'`n}"
+            $result | Should -Be $expected
+        }
     }
 }

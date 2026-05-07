@@ -6,7 +6,8 @@ function Import-Bicep {
     )
 
     begin {
-        $collatedContent = ""
+        $collatedContent = [System.Text.StringBuilder]::new()
+        $emittedMembers = [System.Collections.Generic.HashSet[string]]::new()
     }
 
     process {
@@ -20,8 +21,7 @@ function Import-Bicep {
                 # Resolve the file path
                 $resolvedPath = Resolve-Path -LiteralPath $filePath -ErrorAction SilentlyContinue
                 if (-not $resolvedPath) {
-                    Write-Error "File not found: $filePath"
-                    continue
+                    throw "Import-Bicep: File not found: $filePath"
                 }
 
                 # Read the file content
@@ -116,19 +116,32 @@ function Import-Bicep {
                                 }
 
                                 if ($endIndex -ne -1) {
-                                    $collatedContent += $memberContent + "`n"
+                                    $memberKey = "$($resolvedPath.Path)::$memberName"
+                                    if ($emittedMembers.Add($memberKey)) {
+                                        [void]$collatedContent.Append($memberContent + "`n")
+                                    }
                                     $i = $endIndex # Continue scanning from after the found member
                                 }
                         }
                     }
                     $i++
                 }
+
+                # Warn about any named members that were not found in the file
+                if ($null -ne $members) {
+                    foreach ($requestedMember in $members) {
+                        $memberKey = "$($resolvedPath.Path)::$requestedMember"
+                        if (-not $emittedMembers.Contains($memberKey)) {
+                            Write-Warning "Import-Bicep: Member '$requestedMember' was not found in '$filePath'"
+                        }
+                    }
+                }
             }
         }
     }
 
     end {
-        return $collatedContent
+        return $collatedContent.ToString()
     }
 }
 
@@ -190,8 +203,14 @@ function Invoke-BicepExpression {
         }
         $fullBicepImports = $collapsedLines -join "`n"
 
+        # Guard: ensure bicep CLI is available
+        $bicepCmd = Get-Command bicep -ErrorAction SilentlyContinue
+        if (-not $bicepCmd) {
+            throw "bicep CLI not found. Install from: https://learn.microsoft.com/en-us/azure/azure-resource-manager/bicep/install"
+        }
+
         # Start the Bicep console and pass the imports, declarations, and expression to it
-        $bicepPath = (Get-Command bicep).Source
+        $bicepPath = $bicepCmd.Source
         $processInfo = New-Object System.Diagnostics.ProcessStartInfo
         $processInfo.FileName = $bicepPath
         $processInfo.Arguments = "console"
@@ -203,36 +222,40 @@ function Invoke-BicepExpression {
 
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $processInfo
-        $process.Start() | Out-Null
+        try {
+            $process.Start() | Out-Null
 
-        $inputStream = $process.StandardInput
-        
-        # Write the imported declarations, any setup declarations, then the main expression
-        $inputStream.WriteLine($fullBicepImports)
-        foreach ($setup in $SetupDeclarations) {
-            $inputStream.WriteLine($setup)
+            $inputStream = $process.StandardInput
+
+            # Write the imported declarations, any setup declarations, then the main expression
+            $inputStream.WriteLine($fullBicepImports)
+            foreach ($setup in $SetupDeclarations) {
+                $inputStream.WriteLine($setup)
+            }
+            $inputStream.WriteLine($Expression)
+            $inputStream.Close()
+
+            $output = $process.StandardOutput.ReadToEnd()
+            $null = $process.StandardError.ReadToEnd()  # drain stderr to prevent buffer deadlock
+
+            $process.WaitForExit()
+
+            # Bicep console writes errors to stdout as:
+            #   <offending expression echoed>
+            #   ~~~~ <error message>
+            $outputLines = $output -split '\r?\n'
+            $errorLineIndex = ($outputLines | Select-String -Pattern '^\s*[~\^]+\s+\S').LineNumber | Select-Object -First 1
+            if ($errorLineIndex) {
+                $tildeLineIdx = $errorLineIndex - 1
+                $cleanMessage = ($outputLines[$tildeLineIdx] -replace '^\s*[~\^]+\s*', '').Trim()
+                $echoedExpr   = if ($tildeLineIdx -ge 1) { $outputLines[$tildeLineIdx - 1].Trim() } else { '' }
+                throw "Bicep console error on '$echoedExpr': $cleanMessage"
+            }
+
+            # Return the full trimmed output (bicep console outputs the result directly to stdout)
+            return $output.Trim()
+        } finally {
+            $process.Dispose()
         }
-        $inputStream.WriteLine($Expression)
-        $inputStream.Close()
-
-        $output = $process.StandardOutput.ReadToEnd()
-        $stderr = $process.StandardError.ReadToEnd()
-
-        $process.WaitForExit()
-
-        # Bicep console writes errors to stdout in the form:
-        #   <expression echoed>
-        #   ~~~~~ <error message>
-        # Detect this by looking for a line of tildes/carets followed by an error message.
-        $outputLines = $output -split '\r?\n'
-        $errorLineIndex = ($outputLines | Select-String -Pattern '^\s*[~\^]+\s+\S').LineNumber | Select-Object -First 1
-        if ($errorLineIndex) {
-            # Grab the echoed expression and the error message for a clear failure
-            $errorMessage = ($outputLines[$errorLineIndex - 1]).Trim()
-            throw "Bicep console error: $errorMessage"
-        }
-
-        # Return the full trimmed output (bicep console outputs the result directly to stdout)
-        return $output.Trim()
     }
 }
