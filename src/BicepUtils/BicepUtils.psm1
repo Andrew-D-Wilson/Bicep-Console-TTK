@@ -73,12 +73,26 @@ function Import-Bicep {
                                     # It ends if braces are balanced and the line is not just opening a block
                                     # or if it's a simple one-line var/func without braces.
                                     if ($braceCount -eq 0 -and $k -ge $i) {
-                                        # Arrow func with body on the NEXT line: func(...) type =>
+                                        # Arrow func with body on the NEXT line(s): func(...) type =>
+                                        # The body may span multiple lines (e.g. a multi-line ternary), so we keep
+                                        # reading until parens are balanced AND the next non-blank line doesn't
+                                        # start with '?' or ':' (ternary continuation).
                                         if ($memberType -eq 'func' -and $currentLine.TrimEnd().EndsWith('=>')) {
                                             $k++
                                             while ($k -lt $fileLines.Length -and [string]::IsNullOrWhiteSpace($fileLines[$k])) { $k++ }
-                                            if ($k -lt $fileLines.Length) {
-                                                $memberContent += $fileLines[$k] + "`n"
+                                            $bodyParenCount = 0
+                                            while ($k -lt $fileLines.Length) {
+                                                $bodyLine = $fileLines[$k]
+                                                $memberContent += $bodyLine + "`n"
+                                                $bodyParenCount += ($bodyLine.ToCharArray() | Where-Object { $_ -eq '(' }).Count
+                                                $bodyParenCount -= ($bodyLine.ToCharArray() | Where-Object { $_ -eq ')' }).Count
+                                                # Peek at the next non-blank line to see if it continues the expression
+                                                $nextK = $k + 1
+                                                while ($nextK -lt $fileLines.Length -and [string]::IsNullOrWhiteSpace($fileLines[$nextK])) { $nextK++ }
+                                                $nextTrimmed = if ($nextK -lt $fileLines.Length) { $fileLines[$nextK].Trim() } else { '' }
+                                                $isContinuation = ($bodyParenCount -gt 0) -or $nextTrimmed.StartsWith('?') -or $nextTrimmed.StartsWith(':')
+                                                if (-not $isContinuation) { break }
+                                                $k++
                                             }
                                             $endIndex = $k
                                             break
@@ -135,6 +149,46 @@ function Invoke-BicepExpression {
     process {
         # Strip all decorators - they are not valid in bicep console interactive mode
         $fullBicepImports = ($BicepImports -split '\r?\n' | Where-Object { $_ -notmatch '^\s*@' }) -join "`n"
+
+        # Bicep console processes input line-by-line and only waits for more input when braces
+        # are unbalanced. Arrow functions whose expression body starts on the next line (e.g.
+        # multi-line ternaries) must be collapsed to a single line so the console sees them as
+        # one complete statement. Block bodies (=> {}) are left untouched.
+        $collapsedLines = [System.Collections.ArrayList]::new()
+        $importLines = $fullBicepImports -split '\r?\n'
+        $li = 0
+        while ($li -lt $importLines.Length) {
+            $importLine = $importLines[$li]
+            if ($importLine.TrimEnd().EndsWith('=>')) {
+                # Find the first non-blank body line
+                $bodyStart = $li + 1
+                while ($bodyStart -lt $importLines.Length -and [string]::IsNullOrWhiteSpace($importLines[$bodyStart])) { $bodyStart++ }
+                if ($bodyStart -lt $importLines.Length -and -not $importLines[$bodyStart].Trim().StartsWith('{')) {
+                    # Expression body — merge all continuation lines onto the => line
+                    $merged = $importLine.TrimEnd()
+                    $parenDepth = 0
+                    $bi = $bodyStart
+                    while ($bi -lt $importLines.Length) {
+                        if ([string]::IsNullOrWhiteSpace($importLines[$bi])) { $bi++; continue }
+                        $bl = $importLines[$bi].Trim()
+                        $merged += ' ' + $bl
+                        $parenDepth += ($bl.ToCharArray() | Where-Object { $_ -eq '(' }).Count
+                        $parenDepth -= ($bl.ToCharArray() | Where-Object { $_ -eq ')' }).Count
+                        $peekIdx = $bi + 1
+                        while ($peekIdx -lt $importLines.Length -and [string]::IsNullOrWhiteSpace($importLines[$peekIdx])) { $peekIdx++ }
+                        $peekLine = if ($peekIdx -lt $importLines.Length) { $importLines[$peekIdx].Trim() } else { '' }
+                        if (($parenDepth -le 0) -and -not ($peekLine.StartsWith('?') -or $peekLine.StartsWith(':'))) { break }
+                        $bi++
+                    }
+                    [void]$collapsedLines.Add($merged)
+                    $li = $bi + 1
+                    continue
+                }
+            }
+            [void]$collapsedLines.Add($importLine)
+            $li++
+        }
+        $fullBicepImports = $collapsedLines -join "`n"
 
         # Start the Bicep console and pass the imports, declarations, and expression to it
         $bicepPath = (Get-Command bicep).Source
