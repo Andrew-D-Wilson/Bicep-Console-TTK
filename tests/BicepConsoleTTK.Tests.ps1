@@ -193,4 +193,39 @@ Describe "BicepConsoleTTK" {
             $result | Should -Be $expected
         }
     }
+
+    Context "Variables" {
+        BeforeAll {
+            # mandatoryTags is intentionally excluded here — it references deployment() which is
+            # a deployment-time function not available in the Bicep console REPL.
+            $script:variableImports = Import-Bicep "import {keyVaultSecretsUserRoleDefId, environmentConfig, subnetConfigurations} from '$PSScriptRoot/../examples/Variables.bicep'"
+        }
+
+        It "keyVaultSecretsUserRoleDefId should return the expected GUID string" {
+
+            $result = Invoke-BicepExpression -BicepImports $script:variableImports -Expression "keyVaultSecretsUserRoleDefId"
+
+            $result | Should -Be "'4633458b-17de-408a-b874-0445c86b69e6'"
+        }
+
+        It "environmentConfig should expose per-environment SKU values" {
+
+            $result = Invoke-BicepExpression -BicepImports $script:variableImports -Expression "environmentConfig.dev.sku"
+
+            $result | Should -Be "'Basic'"
+        }
+
+        It "subnetConfigurations should contain the expected subnet entries" {
+
+            $result = Invoke-BicepExpression -BicepImports $script:variableImports -Expression "subnetConfigurations[0].name"
+
+            $result | Should -Be "'web-subnet'"
+        }
+
+        It "mandatoryTags should throw because deployment() is not valid in the Bicep console REPL" {
+
+            $mandatoryTagsImport = Import-Bicep "import {mandatoryTags} from '$PSScriptRoot/../examples/Variables.bicep'"
+            { Invoke-BicepExpression -BicepImports $mandatoryTagsImport -Expression "mandatoryTags" } | Should -Throw "*Bicep console error*"
+        }
+    }
 }

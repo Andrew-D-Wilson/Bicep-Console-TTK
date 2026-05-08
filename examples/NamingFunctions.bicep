@@ -6,7 +6,7 @@
 // ** Shared Imports **
 // ********************
 
-import { coreParams } from './types.bicep'
+import { coreParams } from './Types.bicep'
 
 // Resource Name Constructors
 //***************************

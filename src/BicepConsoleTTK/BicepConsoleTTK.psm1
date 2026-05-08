@@ -57,8 +57,12 @@ function Import-Bicep {
                                     }
                                 }
                                 
-                                # Now find the end of the member definition using brace counting
+                                # Now find the end of the member definition using brace and bracket counting.
+                                # Both must reach zero before a declaration is considered complete —
+                                # this correctly handles array-valued vars (var x = [ ... ]) as well
+                                # as object-valued vars and types (var x = { ... }).
                                 $braceCount = 0
+                                $bracketCount = 0
                                 $memberContent = ""
                                 $endIndex = -1
 
@@ -68,11 +72,13 @@ function Import-Bicep {
                                     
                                     $braceCount += ($currentLine.ToCharArray() | Where-Object { $_ -eq '{' }).Count
                                     $braceCount -= ($currentLine.ToCharArray() | Where-Object { $_ -eq '}' }).Count
+                                    $bracketCount += ($currentLine.ToCharArray() | Where-Object { $_ -eq '[' }).Count
+                                    $bracketCount -= ($currentLine.ToCharArray() | Where-Object { $_ -eq ']' }).Count
                                     
                                     # Heuristic to find the end of a declaration.
-                                    # It ends if braces are balanced and the line is not just opening a block
-                                    # or if it's a simple one-line var/func without braces.
-                                    if ($braceCount -eq 0 -and $k -ge $i) {
+                                    # It ends if braces and brackets are balanced and the line is not just
+                                    # opening a block, or if it's a simple one-line var/func without them.
+                                    if ($braceCount -eq 0 -and $bracketCount -eq 0 -and $k -ge $i) {
                                         # Arrow func with body on the NEXT line(s): func(...) type =>
                                         # The body may span multiple lines (e.g. a multi-line ternary), so we keep
                                         # reading until parens are balanced AND the next non-blank line doesn't
@@ -102,13 +108,13 @@ function Import-Bicep {
                                             $endIndex = $k
                                             break
                                         }
-                                        # For types or funcs with bodies
-                                        if ($currentLine.Trim().EndsWith('}') -or ($currentLine.Trim() -eq '' -and $memberContent.Contains('{'))) {
+                                        # For types or funcs with bodies, and array-valued vars
+                                        if ($currentLine.Trim().EndsWith('}') -or $currentLine.Trim().EndsWith(']') -or ($currentLine.Trim() -eq '' -and $memberContent.Contains('{'))) {
                                             $endIndex = $k
                                             break
                                         }
-                                        # For simple var
-                                        if ($memberType -eq 'var' -and -not $currentLine.Contains('{')) {
+                                        # For simple var (scalar — no braces or brackets)
+                                        if ($memberType -eq 'var' -and -not $currentLine.Contains('{') -and -not $currentLine.Contains('[')) {
                                             $endIndex = $k
                                             break
                                         }
@@ -236,9 +242,13 @@ function Invoke-BicepExpression {
             $inputStream.Close()
 
             $output = $process.StandardOutput.ReadToEnd()
-            $null = $process.StandardError.ReadToEnd()  # drain stderr to prevent buffer deadlock
+            $stderrOutput = $process.StandardError.ReadToEnd()  # drain stderr to prevent buffer deadlock
 
-            $process.WaitForExit()
+            $completed = $process.WaitForExit(30000)  # 30-second timeout guards against a hung console
+            if (-not $completed) {
+                $process.Kill()
+                throw "Bicep console timed out after 30 seconds evaluating: $Expression"
+            }
 
             # Bicep console writes errors to stdout as:
             #   <offending expression echoed>
@@ -250,6 +260,15 @@ function Invoke-BicepExpression {
                 $cleanMessage = ($outputLines[$tildeLineIdx] -replace '^\s*[~\^]+\s*', '').Trim()
                 $echoedExpr   = if ($tildeLineIdx -ge 1) { $outputLines[$tildeLineIdx - 1].Trim() } else { '' }
                 throw "Bicep console error on '$echoedExpr': $cleanMessage"
+            }
+
+            # Surface any process-level stderr (e.g. crash, missing DLL) that was not expressed
+            # as a bicep-format error on stdout, so it is not silently swallowed.
+            if (-not [string]::IsNullOrWhiteSpace($stderrOutput)) {
+                Write-Verbose "Bicep console stderr: $($stderrOutput.Trim())"
+                if ([string]::IsNullOrWhiteSpace($output)) {
+                    throw "Bicep console process error: $($stderrOutput.Trim())"
+                }
             }
 
             # Return the full trimmed output (bicep console outputs the result directly to stdout)

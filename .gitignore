@@ -1,0 +1,15 @@
+# Pester test output
+testResults.xml
+*TestResults*.xml
+*-testResults.xml
+
+# PowerShell module package output
+*.nupkg
+Release/
+out/
+
+# macOS
+.DS_Store
+
+# Windows
+Thumbs.db

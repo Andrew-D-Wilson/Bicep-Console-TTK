@@ -24,7 +24,7 @@ GUID = '3d89c72d-c69e-47ad-8f50-d2fd9b536505'
 Author = 'Andrew Wilson'
 
 # Company or vendor of this module
-CompanyName = 'Unknown'
+CompanyName = 'Andrew Wilson'
 
 # Copyright statement for this module
 Copyright = '(c) Andrew Wilson. All rights reserved.'
@@ -98,10 +98,10 @@ PrivateData = @{
         Tags = 'Bicep', 'Azure', 'Testing', 'Pester'
 
         # A URL to the license for this module.
-        # LicenseUri = ''
+        LicenseUri = 'https://github.com/Andrew-D-Wilson/bicep-console-test-framework/blob/main/LICENSE'
 
         # A URL to the main website for this project.
-        # ProjectUri = ''
+        ProjectUri = 'https://github.com/Andrew-D-Wilson/bicep-console-test-framework'
 
         # A URL to an icon representing this module.
         # IconUri = ''
