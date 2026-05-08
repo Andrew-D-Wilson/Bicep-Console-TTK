@@ -1,7 +1,7 @@
-Describe "Invoke-BicepExpression" {
+Describe "BicepConsoleTTK" {
     BeforeAll {
         Remove-Module -Name BicepConsoleTTK -ErrorAction SilentlyContinue
-        Import-Module "$PSScriptRoot/../src/BicepConsoleTTK/BicepConsoleTTK.psm1" -Force
+        Import-Module "$PSScriptRoot/../src/BicepConsoleTTK" -Force
     }
 
     Context "Basic evaluation" {
@@ -58,6 +58,17 @@ Describe "Invoke-BicepExpression" {
         It "should support wildcard import to bring in all members from a file" {
 
             $bicepImports = Import-Bicep "import * from '$PSScriptRoot/../examples/Types.bicep'"
+
+            $expression = "newCoreParams('ukwest', 'ukw', 'dev', 'myproject')"
+            $result = Invoke-BicepExpression -BicepImports $bicepImports -Expression $expression
+
+            $expected = "{`n  location: 'ukwest'`n  locationShortName: 'ukw'`n  environment: 'dev'`n  projectPrefix: 'myproject'`n}"
+            $result | Should -Be $expected
+        }
+
+        It "should accept pipeline input for import strings" {
+
+            $bicepImports = "import {coreParams, newCoreParams} from '$PSScriptRoot/../examples/Types.bicep'" | Import-Bicep
 
             $expression = "newCoreParams('ukwest', 'ukw', 'dev', 'myproject')"
             $result = Invoke-BicepExpression -BicepImports $bicepImports -Expression $expression
@@ -144,6 +155,14 @@ Describe "Invoke-BicepExpression" {
             $err = { Invoke-BicepExpression -Expression "undeclaredFunction()" } | Should -Throw -PassThru
             $err.Exception.Message | Should -BeLike "*undeclaredFunction*"
             $err.Exception.Message | Should -Not -BeLike "*~~~~*"
+        }
+
+        It "should throw a helpful error when the bicep CLI is not on PATH" {
+
+            InModuleScope BicepConsoleTTK {
+                Mock Get-Command { return $null } -ParameterFilter { $Name -eq 'bicep' }
+                { Invoke-BicepExpression -Expression "concat('a', 'b')" } | Should -Throw "*bicep CLI not found*"
+            }
         }
     }
 
