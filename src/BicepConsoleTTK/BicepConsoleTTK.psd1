@@ -15,7 +15,7 @@ RootModule = 'BicepConsoleTTK.psm1'
 ModuleVersion = '0.1.0'
 
 # Supported PSEditions
-# CompatiblePSEditions = @()
+CompatiblePSEditions = @('Desktop', 'Core')
 
 # ID used to uniquely identify this module
 GUID = '3d89c72d-c69e-47ad-8f50-d2fd9b536505'
@@ -107,7 +107,20 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        # ReleaseNotes = ''
+        ReleaseNotes = '## 0.1.0 (2026-05-08)
+
+Initial release of BicepConsoleTTK (Bicep Console Test Tool Kit).
+
+### Features
+- Import-Bicep: parse named and wildcard import statements to extract exported func, type and var declarations from Bicep files
+- Invoke-BicepExpression: evaluate a Bicep expression via the bicep console REPL and return the result for Pester assertions
+- Multi-file imports with preserved declaration order
+- Automatic deduplication of imported members
+- SetupDeclarations support for pre-declaring typed variables before the test expression
+- Pipeline input support for Import-Bicep
+- Clear error messages: Bicep console errors are caught, tilde/caret noise stripped, and re-thrown as readable exceptions
+- 30-second process timeout to prevent CI pipeline hangs
+- Compatible with Windows PowerShell 5.1 (Desktop) and PowerShell 7+ (Core)'
 
         # Prerelease string of this module
         # Prerelease = ''

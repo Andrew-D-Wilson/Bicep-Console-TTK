@@ -225,6 +225,10 @@ function Invoke-BicepExpression {
         $processInfo.RedirectStandardError = $true
         $processInfo.UseShellExecute = $false
         $processInfo.CreateNoWindow = $true
+        # Explicitly request UTF-8 for stdout/stderr so output is decoded correctly on
+        # Windows PowerShell 5.1, where the default is the system OEM code page.
+        $processInfo.StandardOutputEncoding = [System.Text.Encoding]::UTF8
+        $processInfo.StandardErrorEncoding  = [System.Text.Encoding]::UTF8
 
         $process = New-Object System.Diagnostics.Process
         $process.StartInfo = $processInfo
