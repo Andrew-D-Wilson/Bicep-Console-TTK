@@ -1,7 +1,7 @@
 Describe "Invoke-BicepExpression" {
     BeforeAll {
-        Remove-Module -Name BicepUtils -ErrorAction SilentlyContinue
-        Import-Module "$PSScriptRoot/../src/BicepUtils/BicepUtils.psm1" -Force
+        Remove-Module -Name BicepConsoleTTK -ErrorAction SilentlyContinue
+        Import-Module "$PSScriptRoot/../src/BicepConsoleTTK/BicepConsoleTTK.psm1" -Force
     }
 
     Context "Basic evaluation" {

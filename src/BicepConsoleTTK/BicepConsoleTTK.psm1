@@ -25,7 +25,7 @@ function Import-Bicep {
                 }
 
                 # Read the file content
-                $content = Get-Content -Path $resolvedPath -Raw
+                $content = Get-Content -Path $resolvedPath -Raw -Encoding UTF8
 
                 # Extract the specified members
                 $fileLines = $content -split '\r?\n'
