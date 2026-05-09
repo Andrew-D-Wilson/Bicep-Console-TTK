@@ -33,6 +33,95 @@ function Import-Bicep {
                     $imports.Trim('{}').Split(',') | ForEach-Object { $_.Trim() }
                 }
 
+                # ── Helper: extract one member (and its leading decorators) from $fileLines.
+                # Returns @{ Content = string; EndLine = int } where EndLine = -1 on failure.
+                # Variables intentionally prefixed _x_ to minimise scope bleed when called with &.
+                $extractOneMember = {
+                    param([string[]]$_x_lines, [int]$_x_start, [int]$_x_declare, [string]$_x_type)
+                    $_x_bc = 0; $_x_bk = 0; $_x_mc = ''; $_x_ei = -1
+                    for ($_x_k = $_x_start; $_x_k -lt $_x_lines.Length; $_x_k++) {
+                        $_x_cl = $_x_lines[$_x_k]
+                        $_x_mc += $_x_cl + "`n"
+                        $_x_bc += ($_x_cl.ToCharArray() | Where-Object { $_ -eq '{' }).Count
+                        $_x_bc -= ($_x_cl.ToCharArray() | Where-Object { $_ -eq '}' }).Count
+                        $_x_bk += ($_x_cl.ToCharArray() | Where-Object { $_ -eq '[' }).Count
+                        $_x_bk -= ($_x_cl.ToCharArray() | Where-Object { $_ -eq ']' }).Count
+                        if ($_x_bc -eq 0 -and $_x_bk -eq 0 -and $_x_k -ge $_x_declare) {
+                            if ($_x_type -eq 'func' -and $_x_cl.TrimEnd().EndsWith('=>')) {
+                                $_x_k++
+                                while ($_x_k -lt $_x_lines.Length -and [string]::IsNullOrWhiteSpace($_x_lines[$_x_k])) { $_x_k++ }
+                                $_x_fp = 0
+                                while ($_x_k -lt $_x_lines.Length) {
+                                    $_x_fl = $_x_lines[$_x_k]
+                                    $_x_mc += $_x_fl + "`n"
+                                    $_x_fp += ($_x_fl.ToCharArray() | Where-Object { $_ -eq '(' }).Count
+                                    $_x_fp -= ($_x_fl.ToCharArray() | Where-Object { $_ -eq ')' }).Count
+                                    $_x_nk = $_x_k + 1
+                                    while ($_x_nk -lt $_x_lines.Length -and [string]::IsNullOrWhiteSpace($_x_lines[$_x_nk])) { $_x_nk++ }
+                                    $_x_nt = if ($_x_nk -lt $_x_lines.Length) { $_x_lines[$_x_nk].Trim() } else { '' }
+                                    if (($_x_fp -le 0) -and -not ($_x_nt.StartsWith('?') -or $_x_nt.StartsWith(':'))) { break }
+                                    $_x_k++
+                                }
+                                $_x_ei = $_x_k; break
+                            }
+                            if ($_x_type -eq 'func' -and $_x_cl.Contains('=>')) { $_x_ei = $_x_k; break }
+                            if ($_x_cl.Trim().EndsWith('}') -or $_x_cl.Trim().EndsWith(']') -or ($_x_cl.Trim() -eq '' -and $_x_mc.Contains('{'))) { $_x_ei = $_x_k; break }
+                            if ($_x_type -eq 'var' -and -not $_x_cl.Contains('{') -and -not $_x_cl.Contains('[')) { $_x_ei = $_x_k; break }
+                        }
+                    }
+                    return @{ Content = $_x_mc; EndLine = $_x_ei }
+                }
+
+                # ── Pre-scan: build a full index of every member in the file so we can
+                # resolve dependencies when emitting. Stores { Content; EndLine } per name.
+                $fileIndex = @{}
+                $_pi = 0
+                while ($_pi -lt $fileLines.Length) {
+                    $_pm = [regex]::Match($fileLines[$_pi], '^\s*(type|func|var)\s+([a-zA-Z0-9_]+)')
+                    if ($_pm.Success) {
+                        $_pName = $_pm.Groups[2].Value
+                        $_pType = $_pm.Groups[1].Value
+                        $_pStart = $_pi
+                        for ($_pj = $_pi - 1; $_pj -ge 0; $_pj--) {
+                            if ($fileLines[$_pj].Trim().StartsWith('@')) { $_pStart = $_pj }
+                            elseif ($fileLines[$_pj].Trim() -eq '' -or $fileLines[$_pj].Trim().StartsWith('//')) { }
+                            else { break }
+                        }
+                        $_pExt = & $extractOneMember $fileLines $_pStart $_pi $_pType
+                        if ($_pExt.EndLine -ne -1 -and -not $fileIndex.ContainsKey($_pName)) {
+                            $fileIndex[$_pName] = $_pExt
+                        }
+                        if ($_pExt.EndLine -ne -1) { $_pi = $_pExt.EndLine }
+                    }
+                    $_pi++
+                }
+
+                # ── Dependency-aware emit: emits array-type dependencies before the member itself.
+                # The regex captures the identifier immediately before '[', which covers:
+                #   type Alias = ElementType[]      (array alias)
+                #   prop: ElementType[]?            (inline array property)
+                $bicepBuiltins = [System.Collections.Generic.HashSet[string]]::new(
+                    [string[]]@('string', 'int', 'bool', 'object', 'array', 'any', 'null', 'true', 'false')
+                )
+                $emitWithDeps = $null
+                $emitWithDeps = {
+                    param([string]$_memberName)
+                    $_mc = $fileIndex[$_memberName].Content
+                    # Find types referenced in array positions and emit them first
+                    [regex]::Matches($_mc, '\b([a-zA-Z][a-zA-Z0-9]*)\s*\[') |
+                        ForEach-Object { $_.Groups[1].Value } |
+                        Where-Object { -not $bicepBuiltins.Contains($_) -and $fileIndex.ContainsKey($_) } |
+                        Select-Object -Unique |
+                        ForEach-Object {
+                            $_depKey = "$($resolvedPath.Path)::$_"
+                            if ($emittedMembers.Add($_depKey)) {
+                                & $emitWithDeps $_
+                            }
+                        }
+                    [void]$collatedContent.Append($_mc + "`n")
+                }
+
+                # ── Main scan: emit requested members in file order, with dependencies injected first.
                 $i = 0
                 while ($i -lt $fileLines.Length) {
                     $line = $fileLines[$i]
@@ -43,91 +132,14 @@ function Import-Bicep {
                         $memberName = $memberMatch.Groups[2].Value
 
                         if ($null -eq $members -or $memberName -in $members) {
-                                # Found a member to import. Look back for decorators.
-                                $memberStartIndex = $i
-                                for ($j = $i - 1; $j -ge 0; $j--) {
-                                    if ($fileLines[$j].Trim().StartsWith('@')) {
-                                        $memberStartIndex = $j
-                                    }
-                                    elseif ($fileLines[$j].Trim() -eq '' -or $fileLines[$j].Trim().StartsWith('//')) {
-                                        # continue looking
-                                    }
-                                    else {
-                                        break
-                                    }
-                                }
-                                
-                                # Now find the end of the member definition using brace and bracket counting.
-                                # Both must reach zero before a declaration is considered complete —
-                                # this correctly handles array-valued vars (var x = [ ... ]) as well
-                                # as object-valued vars and types (var x = { ... }).
-                                $braceCount = 0
-                                $bracketCount = 0
-                                $memberContent = ""
-                                $endIndex = -1
-
-                                for ($k = $memberStartIndex; $k -lt $fileLines.Length; $k++) {
-                                    $currentLine = $fileLines[$k]
-                                    $memberContent += $currentLine + "`n"
-                                    
-                                    $braceCount += ($currentLine.ToCharArray() | Where-Object { $_ -eq '{' }).Count
-                                    $braceCount -= ($currentLine.ToCharArray() | Where-Object { $_ -eq '}' }).Count
-                                    $bracketCount += ($currentLine.ToCharArray() | Where-Object { $_ -eq '[' }).Count
-                                    $bracketCount -= ($currentLine.ToCharArray() | Where-Object { $_ -eq ']' }).Count
-                                    
-                                    # Heuristic to find the end of a declaration.
-                                    # It ends if braces and brackets are balanced and the line is not just
-                                    # opening a block, or if it's a simple one-line var/func without them.
-                                    if ($braceCount -eq 0 -and $bracketCount -eq 0 -and $k -ge $i) {
-                                        # Arrow func with body on the NEXT line(s): func(...) type =>
-                                        # The body may span multiple lines (e.g. a multi-line ternary), so we keep
-                                        # reading until parens are balanced AND the next non-blank line doesn't
-                                        # start with '?' or ':' (ternary continuation).
-                                        if ($memberType -eq 'func' -and $currentLine.TrimEnd().EndsWith('=>')) {
-                                            $k++
-                                            while ($k -lt $fileLines.Length -and [string]::IsNullOrWhiteSpace($fileLines[$k])) { $k++ }
-                                            $bodyParenCount = 0
-                                            while ($k -lt $fileLines.Length) {
-                                                $bodyLine = $fileLines[$k]
-                                                $memberContent += $bodyLine + "`n"
-                                                $bodyParenCount += ($bodyLine.ToCharArray() | Where-Object { $_ -eq '(' }).Count
-                                                $bodyParenCount -= ($bodyLine.ToCharArray() | Where-Object { $_ -eq ')' }).Count
-                                                # Peek at the next non-blank line to see if it continues the expression
-                                                $nextK = $k + 1
-                                                while ($nextK -lt $fileLines.Length -and [string]::IsNullOrWhiteSpace($fileLines[$nextK])) { $nextK++ }
-                                                $nextTrimmed = if ($nextK -lt $fileLines.Length) { $fileLines[$nextK].Trim() } else { '' }
-                                                $isContinuation = ($bodyParenCount -gt 0) -or $nextTrimmed.StartsWith('?') -or $nextTrimmed.StartsWith(':')
-                                                if (-not $isContinuation) { break }
-                                                $k++
-                                            }
-                                            $endIndex = $k
-                                            break
-                                        }
-                                        # Inline arrow func: func(...) type => expression
-                                        if ($memberType -eq 'func' -and $currentLine.Contains('=>')) {
-                                            $endIndex = $k
-                                            break
-                                        }
-                                        # For types or funcs with bodies, and array-valued vars
-                                        if ($currentLine.Trim().EndsWith('}') -or $currentLine.Trim().EndsWith(']') -or ($currentLine.Trim() -eq '' -and $memberContent.Contains('{'))) {
-                                            $endIndex = $k
-                                            break
-                                        }
-                                        # For simple var (scalar — no braces or brackets)
-                                        if ($memberType -eq 'var' -and -not $currentLine.Contains('{') -and -not $currentLine.Contains('[')) {
-                                            $endIndex = $k
-                                            break
-                                        }
-                                    }
-                                }
-
-                                if ($endIndex -ne -1) {
-                                    $memberKey = "$($resolvedPath.Path)::$memberName"
-                                    if ($emittedMembers.Add($memberKey)) {
-                                        [void]$collatedContent.Append($memberContent + "`n")
-                                    }
-                                    $i = $endIndex # Continue scanning from after the found member
-                                }
+                            $memberKey = "$($resolvedPath.Path)::$memberName"
+                            if ($emittedMembers.Add($memberKey)) {
+                                & $emitWithDeps $memberName
+                            }
+                            # Advance past the member using the pre-built index
+                            if ($fileIndex.ContainsKey($memberName) -and $fileIndex[$memberName].EndLine -ne -1) {
+                                $i = $fileIndex[$memberName].EndLine
+                            }
                         }
                     }
                     $i++
@@ -183,16 +195,31 @@ function Invoke-BicepExpression {
                 $bodyStart = $li + 1
                 while ($bodyStart -lt $importLines.Length -and [string]::IsNullOrWhiteSpace($importLines[$bodyStart])) { $bodyStart++ }
                 if ($bodyStart -lt $importLines.Length -and -not $importLines[$bodyStart].Trim().StartsWith('{')) {
-                    # Expression body — merge all continuation lines onto the => line
+                    # Expression body — merge all continuation lines onto the => line.
+                    # When inside an object literal ({ }), add commas between properties so
+                    # the collapsed single-line form is valid Bicep (e.g. { a: 1, b: 2 }).
                     $merged = $importLine.TrimEnd()
                     $parenDepth = 0
+                    $localBraceDepth = 0
                     $bi = $bodyStart
                     while ($bi -lt $importLines.Length) {
                         if ([string]::IsNullOrWhiteSpace($importLines[$bi])) { $bi++; continue }
                         $bl = $importLines[$bi].Trim()
-                        $merged += ' ' + $bl
+                        # Inside an object literal, consecutive property lines need a comma separator.
+                        # A property line matches: identifier: value  OR  'quoted-key': value
+                        $isObjProp = $localBraceDepth -gt 0 -and
+                                     ($bl -match "^([a-zA-Z_][a-zA-Z0-9_]*|'[^']*')\s*:") -and
+                                     -not $merged.TrimEnd().EndsWith('{') -and
+                                     -not $merged.TrimEnd().EndsWith(',')
+                        if ($isObjProp) {
+                            $merged += ', ' + $bl
+                        } else {
+                            $merged += ' ' + $bl
+                        }
                         $parenDepth += ($bl.ToCharArray() | Where-Object { $_ -eq '(' }).Count
                         $parenDepth -= ($bl.ToCharArray() | Where-Object { $_ -eq ')' }).Count
+                        $localBraceDepth += ($bl.ToCharArray() | Where-Object { $_ -eq '{' }).Count
+                        $localBraceDepth -= ($bl.ToCharArray() | Where-Object { $_ -eq '}' }).Count
                         $peekIdx = $bi + 1
                         while ($peekIdx -lt $importLines.Length -and [string]::IsNullOrWhiteSpace($importLines[$peekIdx])) { $peekIdx++ }
                         $peekLine = if ($peekIdx -lt $importLines.Length) { $importLines[$peekIdx].Trim() } else { '' }

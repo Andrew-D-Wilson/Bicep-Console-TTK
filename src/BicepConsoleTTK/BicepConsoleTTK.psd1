@@ -12,7 +12,7 @@
 RootModule = 'BicepConsoleTTK.psm1'
 
 # Version number of this module.
-ModuleVersion = '0.1.0'
+ModuleVersion = '0.1.1'
 
 # Supported PSEditions
 CompatiblePSEditions = @('Desktop', 'Core')
@@ -107,7 +107,13 @@ PrivateData = @{
         # IconUri = ''
 
         # ReleaseNotes of this module
-        ReleaseNotes = '## 0.1.0 (2026-05-08)
+        ReleaseNotes = '## 0.1.1 (2026-05-09)
+
+### Bug Fixes
+- Fixed multi-line object literal bodies in func declarations being collapsed without commas between properties, causing a Bicep console parse error (e.g. `func generateBaseTags` using `union(origTags, { ... })`)
+- Fixed array type aliases (e.g. `type Foo = Bar[]`) being emitted before their element type when imported by name, causing a "not a valid type" error in the Bicep console. Import-Bicep now resolves and emits element type dependencies first.
+
+## 0.1.0 (2026-05-08)
 
 Initial release of BicepConsoleTTK (Bicep Console Test Tool Kit).
 
