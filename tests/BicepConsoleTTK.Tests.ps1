@@ -228,4 +228,37 @@ Describe "BicepConsoleTTK" {
             { Invoke-BicepExpression -BicepImports $mandatoryTagsImport -Expression "mandatoryTags" } | Should -Throw "*Bicep console error*"
         }
     }
+
+    Context "Shared Functions" {
+        BeforeAll {
+            $script:functionsImports = Import-Bicep "import {GetAIIngestionURL} from '$PSScriptRoot/../examples/Functions.bicep'"
+        }
+
+        It "should extract the ingestion endpoint URL and append the v2/track path" {
+
+            $connStr = 'InstrumentationKey=00000000-0000-0000-0000-000000000000;IngestionEndpoint=https://eastus.in.applicationinsights.azure.com/;LiveEndpoint=https://eastus.livediagnostics.monitor.azure.com/;ApplicationId=11111111-1111-1111-1111-111111111111'
+            $result = Invoke-BicepExpression -BicepImports $script:functionsImports `
+                -Expression "GetAIIngestionURL('$connStr')"
+
+            $result | Should -Be "'https://eastus.in.applicationinsights.azure.com/v2/track'"
+        }
+
+        It "should work when IngestionEndpoint is the first segment in the connection string" {
+
+            $connStr = 'IngestionEndpoint=https://westeurope.in.applicationinsights.azure.com/;InstrumentationKey=00000000-0000-0000-0000-000000000000;LiveEndpoint=https://westeurope.livediagnostics.monitor.azure.com/;ApplicationId=11111111-1111-1111-1111-111111111111'
+            $result = Invoke-BicepExpression -BicepImports $script:functionsImports `
+                -Expression "GetAIIngestionURL('$connStr')"
+
+            $result | Should -Be "'https://westeurope.in.applicationinsights.azure.com/v2/track'"
+        }
+
+        It "should work when IngestionEndpoint is the last segment in the connection string" {
+
+            $connStr = 'InstrumentationKey=00000000-0000-0000-0000-000000000000;LiveEndpoint=https://uksouth.livediagnostics.monitor.azure.com/;ApplicationId=11111111-1111-1111-1111-111111111111;IngestionEndpoint=https://uksouth.in.applicationinsights.azure.com/'
+            $result = Invoke-BicepExpression -BicepImports $script:functionsImports `
+                -Expression "GetAIIngestionURL('$connStr')"
+
+            $result | Should -Be "'https://uksouth.in.applicationinsights.azure.com/v2/track'"
+        }
+    }
 }
