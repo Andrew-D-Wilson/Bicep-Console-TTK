@@ -27,7 +27,7 @@ Author = 'Andrew Wilson'
 CompanyName = 'Andrew Wilson'
 
 # Copyright statement for this module
-Copyright = '(c) Andrew Wilson. All rights reserved.'
+Copyright = '(c) Andrew Wilson. MIT License.'
 
 # Description of the functionality provided by this module
 Description = 'Bicep Console Test Tool Kit (BicepConsoleTTK) — test Bicep imported types, functions and variables via the Bicep Console REPL using Pester'
