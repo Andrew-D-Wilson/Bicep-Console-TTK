@@ -152,6 +152,22 @@ Invoke-Pester -Path ./tests
 
 2. **`Invoke-BicepExpression`** prepares the imports for the console by stripping all decorator lines (the REPL does not accept them) and collapsing multi-line arrow-function bodies onto a single line (the REPL only evaluates a statement when its braces are balanced, so a body that starts on the next line would be treated as a second, incomplete statement). It then spawns `bicep console` as a child process with stdin/stdout/stderr all redirected, writes the imports, any setup declarations, and the expression to stdin, closes stdin to signal EOF, reads all stdout, and detects Bicep errors by looking for lines that start with `~` or `^` underline characters. On error, the underline and the surrounding context are parsed into a clean exception message.
 
+## Copilot Integration
+
+This repository ships two complementary artefacts that teach GitHub Copilot how to write BicepConsoleTTK tests.
+
+### Agent skill (recommended)
+
+The `.github/skills/bicepconsolettk/SKILL.md` file is a [GitHub Copilot agent skill](https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/add-skills). When Copilot is working in agent mode it will automatically load this skill whenever the task is related to writing Bicep tests, injecting the full authoring guide into its context.
+
+The skill is picked up automatically from `.github/skills/` in any repository that contains it.
+
+### VS Code instructions file
+
+The `bicepconsolettk.instructions.md` file is a VS Code Copilot [custom instructions file](https://code.visualstudio.com/docs/copilot/copilot-customization). Copy it into your project at `.github/instructions/bicepconsolettk.instructions.md` and VS Code will automatically apply it whenever you work on `*.Tests.ps1` files in that workspace.
+
+---
+
 ## Project Structure
 
 ```
@@ -165,5 +181,11 @@ examples/
   Variables.bicep          # Example exported shared variables
 tests/
   BicepConsoleTTK.Tests.ps1  # Pester test suite for the framework itself
+.github/
+  skills/
+    bicepconsolettk/
+      SKILL.md             # GitHub Copilot agent skill
+  instructions/            # (not committed — copy bicepconsolettk.instructions.md here)
+bicepconsolettk.instructions.md  # VS Code Copilot custom instructions file
 ```
 

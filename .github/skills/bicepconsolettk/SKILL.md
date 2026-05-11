@@ -1,14 +1,7 @@
 ---
-applyTo: "**/*.Tests.ps1"
+name: bicepconsolettk
+description: Guide for writing Pester unit tests for Azure Bicep shared libraries using the BicepConsoleTTK PowerShell module. Use this skill when asked to write, generate, or fix Pester tests that evaluate Bicep functions, types, or variables using the bicep console REPL.
 ---
-
-# BicepConsoleTTK — Test Authoring Instructions
-
-> **How to use this file (VS Code)**: Copy it into your project at `.github/instructions/bicepconsolettk.instructions.md`.
-> VS Code will then automatically apply these instructions whenever you work on `*.Tests.ps1` files.
->
-> **Agent skill**: If you use GitHub Copilot in agent mode, use the companion `.github/skills/bicepconsolettk/SKILL.md` instead.
-> See the repository README for installation instructions.
 
 You are helping the user write Pester unit tests for Azure Bicep shared libraries using the **BicepConsoleTTK** PowerShell module. Tests drive the `bicep console` REPL locally — no Azure subscription or deployment is needed.
 
